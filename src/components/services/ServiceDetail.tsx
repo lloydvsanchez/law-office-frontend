@@ -9,7 +9,7 @@ import SectionEyebrow from "../ui/SectionEyebrow";
 import ImagePlaceholder from "../ui/ImagePlaceholder";
 import CtaButton from "../ui/CtaButton";
 
-export interface ServiceDetailData {
+interface ServiceDetailData {
   /** HTML id for anchor navigation */
   id: string;
   eyebrow: string;

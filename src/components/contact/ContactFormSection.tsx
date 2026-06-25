@@ -67,10 +67,32 @@ const ContactFormSection: React.FC = () => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleSubmit = () => {
-    // TODO: replace with API call to POST /api/v1/inquiries
+  const handleSubmit = async (e: Event) => {
+    // Prevent the browser from reloading the page
+    if (e) e.preventDefault();
+
     console.log("Form submitted:", form);
-    setSubmitted(true);
+    const formData = new URLSearchParams(Object.entries(form));
+
+    try {
+      const response = await fetch("https://law-office-backend-f5y1.onrender.com/api/v1/email_inquiry", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: formData.toString(),
+      });
+
+      if (response.ok) {
+        setSubmitted(true);
+      } else {
+        console.error("Server responded with an error status:", response.status);
+        alert("Something went wrong on the server. Please try again.");
+      }
+    } catch (error) {
+      console.error("Network error while connecting to Render:", error);
+      alert("Could not reach the backend server. Is it awake?");
+    }
   };
 
   return (

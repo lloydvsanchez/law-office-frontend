@@ -6,6 +6,7 @@ import { Services } from './pages/Services'
 import { Contact } from './pages/Contact'
 import { ForLawyers } from './pages/ForLawyers'
 import { LegalGuides } from './pages/LegalGuides'
+import { TemplateSearch } from './pages/TemplateSearch'
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <Route path="/for-lawyers" element={<ForLawyers />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/legal-guides" element={<LegalGuides />} />
+          <Route path="/template-search" element={<TemplateSearch />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -47,13 +47,6 @@ const TemplateSearch: React.FC = () => {
   const isIdle = state.stage === "idle";
   const isLoadingTemplate = state.stage === "loading_template";
 
-  // The template_id currently being fetched — used to highlight active card
-  const loadingTemplateId =
-    isLoadingTemplate ? undefined : undefined;
-  // NOTE: to highlight the active card we'd need to store the id in state.
-  // The hook sets stage to loading_template but doesn't carry the id through
-  // because the fetch is immediate. The spinner on the card is sufficient UX.
-
   return (
     <div className="min-h-screen bg-[#F5F0E8] flex flex-col">
 

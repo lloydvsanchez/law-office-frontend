@@ -4,5 +4,12 @@
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application"
+  },
+  "env": {
+    "production": {
+      "vars": {
+        "VITE_API_URL": "https://law-office-backend-f5y1.onrender.com/api/v1"
+      }
+    }
   }
 }

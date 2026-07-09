@@ -9,7 +9,7 @@
 import { useState, useRef, useCallback } from "react";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const BASE_URL = "http://localhost:3000/api/v1";
+const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000/api/v1";
 const POLL_INTERVAL_FALLBACK_MS = 5000;
 const MAX_POLL_ATTEMPTS = 60; // safety ceiling: 60 × 5s = 5 minutes max
 

@@ -8,10 +8,12 @@ import { ForLawyers } from './pages/ForLawyers'
 import { LegalGuides } from './pages/LegalGuides'
 import { TemplateSearch } from './pages/TemplateSearch'
 
-function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
+function getRoutes() {
+  if(import.meta.env.PROD) {
+    return (<Route path="/" element={<TemplateSearch />} />);
+  } else {
+    return (
+      <>
         <Route element={<Layout />}>
           <Route path="/" element={<Home />} />
           <Route path="/about" element={<About />} />
@@ -21,6 +23,16 @@ function App() {
           <Route path="/legal-guides" element={<LegalGuides />} />
           <Route path="/template-search" element={<TemplateSearch />} />
         </Route>
+        <Route path="/template-search-v2" element={<TemplateSearch />} />
+      </>
+    );
+  }
+}
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        {getRoutes()}
       </Routes>
     </BrowserRouter>
   )

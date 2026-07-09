@@ -2,20 +2,15 @@
 // Google-style centered search experience shown on initial load.
 // Query max length: 120 characters (see MAX_QUERY_LENGTH).
 // Shows character count as user approaches the limit.
+//
+// Example queries are fetched from GET /api/v1/examples.
+// Falls back to FALLBACK_EXAMPLES if the API returns fewer than 5 results
+// or is unavailable. See useExampleQueries.ts for details.
 
 import React, { useState, useRef, useEffect } from "react";
+import { useExampleQueries } from "../../hooks/useExampleQueries";
 
 export const MAX_QUERY_LENGTH = 120;
-
-// Suggested example queries shown below the search bar — helps users understand
-// what kinds of documents they can ask for.
-const EXAMPLE_QUERIES = [
-  "Special Power of Attorney",
-  "Deed of Absolute Sale",
-  "Affidavit of Loss",
-  "Contract to Sell",
-  "Demand Letter for unpaid debt",
-];
 
 interface TemplateSearchBarProps {
   onSearch: (query: string) => void;
@@ -36,6 +31,9 @@ const TemplateSearchBar: React.FC<TemplateSearchBarProps> = ({
   const remaining = MAX_QUERY_LENGTH - query.length;
   const isNearLimit = remaining <= 20;
   const isAtLimit = remaining <= 0;
+
+  // Fetch examples from API; falls back to FALLBACK_EXAMPLES if < 5 returned
+  const { examples, loading: examplesLoading } = useExampleQueries();
 
   useEffect(() => {
     if (!compact) {
@@ -192,21 +190,52 @@ const TemplateSearchBar: React.FC<TemplateSearchBarProps> = ({
         <span className="font-sans text-xs text-[#A8A8A8] w-full mb-1">
           Try:
         </span>
-        {EXAMPLE_QUERIES.map((example) => (
-          <button
-            key={example}
-            type="button"
-            onClick={() => {
-              setQuery(example);
-              inputRef.current?.focus();
-            }}
-            className="font-sans text-xs text-[#5C5C5C] border border-[#E8D5A3]
-              bg-white px-3 py-1.5 hover:border-[#C9A84C] hover:text-[#C9A84C]
-              transition-colors duration-150"
-          >
-            {example}
-          </button>
-        ))}
+
+        {/* Skeleton chips while examples are loading */}
+        {examplesLoading
+          ? Array.from({ length: 5 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-7 w-32 bg-[#E8D5A3] animate-pulse"
+                style={{ animationDelay: `${i * 80}ms` }}
+              />
+            ))
+          : examples.map((example) => (
+              <div key={example.title} className="relative group/tip">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery(example.title);
+                    inputRef.current?.focus();
+                  }}
+                  className="font-sans text-xs text-[#5C5C5C] border border-[#E8D5A3]
+                    bg-white px-3 py-1.5 hover:border-[#C9A84C] hover:text-[#C9A84C]
+                    transition-colors duration-150"
+                >
+                  {example.title}
+                </button>
+
+                {/* Tooltip — description from the API */}
+                {example.description && (example.description.length > example.title.length) && (
+                  <div
+                    className="
+                      pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2
+                      mb-2 w-56 bg-[#1A1A1A] text-white font-sans text-xs leading-relaxed
+                      px-3 py-2 z-50
+                      opacity-0 group-hover/tip:opacity-100
+                      translate-y-1 group-hover/tip:translate-y-0
+                      transition-all duration-150
+                    "
+                    role="tooltip"
+                  >
+                    {example.description}
+                    {/* Tooltip arrow */}
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4
+                      border-transparent border-t-[#1A1A1A]" />
+                  </div>
+                )}
+              </div>
+            ))}
       </div>
     </div>
   );

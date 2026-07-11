@@ -7,9 +7,10 @@
 //   searching        → compact top bar + spinner
 //   polling          → compact top bar + TemplateGenerating
 //   results          → compact top bar + TemplateResults
-//   loading_template → compact top bar + TemplateResults (cards disabled, active card spinning)
-//   viewing_template → compact top bar + TemplateViewer (back → results, no API call)
-//   generated        → compact top bar + TemplateDisplay (AI-generated template)
+//   loading_template → compact top bar + TemplateResults (cards disabled)
+//   viewing_template → compact top bar + TemplateViewer
+//   generated        → compact top bar + TemplateDisplay
+//   regenerating     → compact top bar + TemplateGenerating (labeled differently)
 //   error            → compact top bar + TemplateError
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -34,12 +35,10 @@ const SearchingIndicator: React.FC = () => (
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 const TemplateSearch: React.FC = () => {
-  const { state, search, selectTemplate, backToResults, reset } = useTemplateSearch();
+  const { state, search, selectTemplate, backToResults, regenerate, reset } = useTemplateSearch();
   const lastQueryRef = useRef<string>("");
 
-  // Fetched once here at page level — passed as props to TemplateSearchBar.
-  // This prevents re-fetching when TemplateSearchBar mounts/unmounts between
-  // idle (hero) and non-idle (compact) states.
+  // Fetched once at page level — passed as props to TemplateSearchBar (idle only)
   const { examples, loading: examplesLoading } = useExampleQueries();
 
   const handleSearch = useCallback(
@@ -52,6 +51,13 @@ const TemplateSearch: React.FC = () => {
 
   const isIdle = state.stage === "idle";
   const isLoadingTemplate = state.stage === "loading_template";
+  const isRegenerating = state.stage === "regenerating";
+
+  const isCompactBarLoading =
+    state.stage === "searching" ||
+    state.stage === "polling" ||
+    isLoadingTemplate ||
+    isRegenerating;
 
   return (
     <div className="min-h-screen bg-[#F5F0E8] flex flex-col">
@@ -60,8 +66,6 @@ const TemplateSearch: React.FC = () => {
       {!isIdle && (
         <header className="sticky top-0 z-40 bg-white border-b border-[#E8D5A3] shadow-sm">
           <div className="max-w-4xl mx-auto px-6 py-3 flex items-center gap-6">
-
-            {/* Wordmark — resets to idle */}
             <button
               type="button"
               onClick={reset}
@@ -69,27 +73,19 @@ const TemplateSearch: React.FC = () => {
                 focus-visible:ring-2 focus-visible:ring-[#C9A84C]"
               aria-label="Start new search"
             >
-              <span
-                className="text-base tracking-[0.12em] text-[#1C1C1C] font-light"
-                style={{ fontFamily: "'Cormorant Garamond', Georgia, serif" }}
-              >
+              <span className="text-base tracking-[0.12em] text-[#1C1C1C] font-light"
+                style={{ fontFamily: "'Cormorant Garamond', Georgia, serif" }}>
                 L. SANCHEZ
               </span>
               <span className="font-sans text-[8px] tracking-[0.25em] text-[#C9A84C] uppercase font-medium">
                 Templates
               </span>
             </button>
-
-            {/* Compact search bar — disabled during template load */}
             <div className="flex-1 flex justify-center">
               <TemplateSearchBar
                 compact
                 onSearch={handleSearch}
-                isLoading={
-                  state.stage === "searching" ||
-                  state.stage === "polling" ||
-                  isLoadingTemplate
-                }
+                isLoading={isCompactBarLoading}
                 initialValue={lastQueryRef.current}
               />
             </div>
@@ -100,7 +96,7 @@ const TemplateSearch: React.FC = () => {
       {/* ── Main content ── */}
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
 
-        {/* IDLE — pass examples from page-level fetch; compact bar never shows examples */}
+        {/* IDLE */}
         {state.stage === "idle" && (
           <TemplateSearchBar
             onSearch={handleSearch}
@@ -112,7 +108,7 @@ const TemplateSearch: React.FC = () => {
         {/* SEARCHING */}
         {state.stage === "searching" && <SearchingIndicator />}
 
-        {/* POLLING */}
+        {/* POLLING — initial generation */}
         {state.stage === "polling" && (
           <TemplateGenerating
             query={lastQueryRef.current}
@@ -120,7 +116,16 @@ const TemplateSearch: React.FC = () => {
           />
         )}
 
-        {/* RESULTS — normal */}
+        {/* REGENERATING — same UI as polling but with different label */}
+        {state.stage === "regenerating" && (
+          <TemplateGenerating
+            query={lastQueryRef.current}
+            attempt={state.attempt}
+            label="Regenerating template"
+          />
+        )}
+
+        {/* RESULTS */}
         {state.stage === "results" && (
           <TemplateResults
             results={state.results}
@@ -148,15 +153,17 @@ const TemplateSearch: React.FC = () => {
             query={state.query}
             onBack={backToResults}
             onNewSearch={reset}
+            onRegenerate={regenerate}
           />
         )}
 
-        {/* GENERATED (AI-generated, shape TBD) */}
+        {/* GENERATED — AI-generated template */}
         {state.stage === "generated" && (
           <TemplateDisplay
             template={state.template}
             query={lastQueryRef.current}
             onNewSearch={reset}
+            onRegenerate={regenerate}
           />
         )}
 

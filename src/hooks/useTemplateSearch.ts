@@ -24,12 +24,20 @@ export interface SearchResult {
 }
 
 export interface GeneratedTemplate {
+  id?: string;
+  title?: string;
+  description?: string;
+  practice_area?: string | null;
+  content_raw?: string;
+  status?: string;
+  source?: string;
+  created_at?: string;
   [key: string]: unknown;
 }
 
 // Shape returned by GET /api/v1/templates/:id
 export interface TemplateDetail {
-  id: number;
+  id: number | string;
   title: string;
   description: string;
   practice_area: string | null;
@@ -45,6 +53,9 @@ export type PageState =
   | { stage: "loading_template"; results: SearchResult[]; query: string }
   | { stage: "viewing_template"; template: TemplateDetail; results: SearchResult[]; query: string }
   | { stage: "generated"; template: GeneratedTemplate; query: string }
+  // regenerating: same polling flow as search, but triggered by Force Regenerate.
+  // prev captures where we came from so we can restore it on failure.
+  | { stage: "regenerating"; generationId: string; attempt: number; prev: PageState }
   | { stage: "error"; message: string; retriable: boolean };
 
 // ── API response shapes ───────────────────────────────────────────────────────
@@ -75,6 +86,18 @@ interface GenerationStatusResponse {
   errors: string[];
 }
 
+interface RegenerateResponseData {
+  generated: boolean;
+  generation_id: string | null;
+  service_unavailable?: boolean;
+}
+
+interface RegenerateResponse {
+  data: RegenerateResponseData;
+  meta: Record<string, unknown>;
+  errors: string[];
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 export function useTemplateSearch() {
   const [state, setState] = useState<PageState>({ stage: "idle" });
@@ -82,8 +105,6 @@ export function useTemplateSearch() {
   const pollAttemptsRef = useRef(0);
 
   // Cache: template_id → TemplateDetail
-  // Persists for the lifetime of the hook instance (i.e. while on the page).
-  // Avoids repeat fetches when user navigates back to results and re-opens same card.
   const templateCacheRef = useRef<Map<string, TemplateDetail>>(new Map());
 
   // Stop any in-flight polling
@@ -95,24 +116,36 @@ export function useTemplateSearch() {
     pollAttemptsRef.current = 0;
   }, []);
 
-  // Poll generation status recursively
+  // Poll generation status — shared by both search and regenerate flows.
+  // onSuccess receives the completed template and the query string.
+  // onFailure receives the prev state to restore (used by regenerate).
   const pollGenerationStatus = useCallback(
-    async (generationId: string, intervalMs: number) => {
+    async (
+      generationId: string,
+      intervalMs: number,
+      isRegenerate: boolean,
+      prevStateOnFailure: PageState | null,
+      queryForGenerated: string
+    ) => {
       pollAttemptsRef.current += 1;
 
       if (pollAttemptsRef.current > MAX_POLL_ATTEMPTS) {
         stopPolling();
-        setState({
-          stage: "error",
-          message: "Generation is taking too long. Please try again.",
-          retriable: true,
-        });
+        if (isRegenerate && prevStateOnFailure) {
+          // Restore previous view instead of showing a full error page
+          setState(prevStateOnFailure);
+        } else {
+          setState({
+            stage: "error",
+            message: "Generation is taking too long. Please try again.",
+            retriable: true,
+          });
+        }
         return;
       }
 
       try {
         const res = await fetch(`${BASE_URL}/generations/${generationId}/status`);
-
         if (!res.ok) throw new Error(`Status check failed (${res.status})`);
 
         const json: GenerationStatusResponse = await res.json();
@@ -121,42 +154,61 @@ export function useTemplateSearch() {
         const nextInterval =
           poll_interval_seconds > 0 ? poll_interval_seconds * 1000 : intervalMs;
 
-        setState((prev) =>
-          prev.stage === "polling" ? { ...prev, attempt: pollAttemptsRef.current } : prev
-        );
+        // Update attempt counter in state
+        setState((prev) => {
+          if (prev.stage === "polling") return { ...prev, attempt: pollAttemptsRef.current };
+          if (prev.stage === "regenerating") return { ...prev, attempt: pollAttemptsRef.current };
+          return prev;
+        });
 
         if (status === "success" || status === "completed") {
           stopPolling();
-          setState((prev) => ({
+          setState({
             stage: "generated",
             template: template ?? {},
-            query: prev.stage === "polling" ? "" : "",
-          }));
+            query: queryForGenerated,
+          });
           return;
         }
 
         if (status === "failed") {
           stopPolling();
-          setState({
-            stage: "error",
-            message: "Template generation failed. Please try a different query.",
-            retriable: true,
-          });
+          if (isRegenerate && prevStateOnFailure) {
+            setState(prevStateOnFailure);
+          } else {
+            setState({
+              stage: "error",
+              message: "Template generation failed. Please try a different query.",
+              retriable: true,
+            });
+          }
           return;
         }
 
+        // Still pending — schedule next poll
         pollTimerRef.current = setTimeout(
-          () => pollGenerationStatus(generationId, nextInterval),
+          () =>
+            pollGenerationStatus(
+              generationId,
+              nextInterval,
+              isRegenerate,
+              prevStateOnFailure,
+              queryForGenerated
+            ),
           nextInterval
         );
       } catch (err) {
         stopPolling();
-        setState({
-          stage: "error",
-          message:
-            err instanceof Error ? err.message : "Failed to check generation status.",
-          retriable: true,
-        });
+        if (isRegenerate && prevStateOnFailure) {
+          setState(prevStateOnFailure);
+        } else {
+          setState({
+            stage: "error",
+            message:
+              err instanceof Error ? err.message : "Failed to check generation status.",
+            retriable: true,
+          });
+        }
       }
     },
     [stopPolling]
@@ -192,7 +244,7 @@ export function useTemplateSearch() {
         if (generated && generation_id) {
           pollAttemptsRef.current = 0;
           setState({ stage: "polling", generationId: generation_id, attempt: 0 });
-          await pollGenerationStatus(generation_id, POLL_INTERVAL_FALLBACK_MS);
+          await pollGenerationStatus(generation_id, POLL_INTERVAL_FALLBACK_MS, false, null, query);
           return;
         }
 
@@ -209,63 +261,110 @@ export function useTemplateSearch() {
     [stopPolling, pollGenerationStatus]
   );
 
+  // Force regenerate — called from TemplateViewer or TemplateDisplay.
+  // On failure, restores the previous state so the user doesn't lose their context.
+  const regenerate = useCallback(
+    async (templateId: string) => {
+      stopPolling();
+
+      // Capture prev state and query, then immediately set stage to regenerating
+      // so the loading screen appears before the fetch completes.
+      let prevState: PageState = { stage: "idle" };
+      let currentQuery = "";
+
+      setState((prev) => {
+        prevState = prev;
+        if (prev.stage === "viewing_template") currentQuery = prev.query;
+        if (prev.stage === "generated") currentQuery = prev.query;
+        return {
+          stage: "regenerating",
+          generationId: "", // placeholder — updated once we have the real id
+          attempt: 0,
+          prev: prevState,
+        };
+      });
+
+      try {
+        const res = await fetch(`${BASE_URL}/templates/regenerate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ regeneration: { id: templateId } }),
+        });
+
+        if (!res.ok) throw new Error(`Regenerate request failed (${res.status})`);
+
+        const json: RegenerateResponse = await res.json();
+        const { generated, generation_id, service_unavailable } = json.data;
+
+        if (service_unavailable) {
+          // Don't navigate away — just alert without state change
+          // Surface as a non-blocking error by restoring prev state
+          setState(prevState);
+          return;
+        }
+
+        if (generated && generation_id) {
+          pollAttemptsRef.current = 0;
+          // Update generationId now that we have the real one from the API
+          setState((prev) =>
+            prev.stage === "regenerating"
+              ? { ...prev, generationId: generation_id }
+              : prev
+          );
+          await pollGenerationStatus(
+            generation_id,
+            POLL_INTERVAL_FALLBACK_MS,
+            true,
+            prevState,
+            currentQuery
+          );
+          return;
+        }
+
+        // generated: false means service returned immediately without generating
+        // — shouldn't happen for regenerate but handle gracefully
+        setState(prevState);
+      } catch (err) {
+        // Restore previous state on error — user keeps their current view
+        setState(prevState);
+        console.error("Regenerate error:", err);
+      }
+    },
+    [stopPolling, pollGenerationStatus]
+  );
+
   // Fetch a single template by ID — uses cache to avoid repeat calls
   const selectTemplate = useCallback(async (templateId: string) => {
-    // Must be called from results or loading_template stage
     setState((prev) => {
       if (prev.stage !== "results" && prev.stage !== "loading_template") return prev;
-      return {
-        stage: "loading_template",
-        results: prev.results,
-        query: prev.query,
-      };
+      return { stage: "loading_template", results: prev.results, query: prev.query };
     });
 
-    // Check cache first
     const cached = templateCacheRef.current.get(templateId);
     if (cached) {
       setState((prev) => {
         if (prev.stage !== "loading_template") return prev;
-        return {
-          stage: "viewing_template",
-          template: cached,
-          results: prev.results,
-          query: prev.query,
-        };
+        return { stage: "viewing_template", template: cached, results: prev.results, query: prev.query };
       });
       return;
     }
 
     try {
       const res = await fetch(`${BASE_URL}/templates/${templateId}`);
-
       if (!res.ok) throw new Error(`Failed to load template (${res.status})`);
 
       const template: TemplateDetail = await res.json();
-
-      // Store in cache
       templateCacheRef.current.set(templateId, template);
 
       setState((prev) => {
         if (prev.stage !== "loading_template") return prev;
-        return {
-          stage: "viewing_template",
-          template,
-          results: prev.results,
-          query: prev.query,
-        };
+        return { stage: "viewing_template", template, results: prev.results, query: prev.query };
       });
     } catch (err) {
       setState((prev) => {
         if (prev.stage !== "loading_template") return prev;
-        // On error, return to results — don't lose the list
-        return {
-          stage: "results",
-          results: prev.results,
-          query: prev.query,
-        };
+        return { stage: "results", results: prev.results, query: prev.query };
       });
-      // Surface error without replacing the results list
       console.error("Template fetch error:", err);
     }
   }, []);
@@ -274,11 +373,7 @@ export function useTemplateSearch() {
   const backToResults = useCallback(() => {
     setState((prev) => {
       if (prev.stage !== "viewing_template") return prev;
-      return {
-        stage: "results",
-        results: prev.results,
-        query: prev.query,
-      };
+      return { stage: "results", results: prev.results, query: prev.query };
     });
   }, []);
 
@@ -287,5 +382,5 @@ export function useTemplateSearch() {
     setState({ stage: "idle" });
   }, [stopPolling]);
 
-  return { state, search, selectTemplate, backToResults, reset };
+  return { state, search, selectTemplate, backToResults, regenerate, reset };
 }

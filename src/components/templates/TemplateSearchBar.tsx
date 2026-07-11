@@ -8,16 +8,19 @@
 // or is unavailable. See useExampleQueries.ts for details.
 
 import React, { useState, useRef, useEffect } from "react";
-import { useExampleQueries } from "../../hooks/useExampleQueries";
+import type { ExampleQuery } from "../../hooks/useExampleQueries";
+import { FALLBACK_EXAMPLES } from "../../hooks/useExampleQueries";
 
 export const MAX_QUERY_LENGTH = 120;
 
 interface TemplateSearchBarProps {
   onSearch: (query: string) => void;
   isLoading?: boolean;
-  /** If provided, renders as a compact top bar instead of centered hero */
   compact?: boolean;
   initialValue?: string;
+  /** Passed from the page level — fetched once in TemplateSearch.tsx */
+  examples?: ExampleQuery[];
+  examplesLoading?: boolean;
 }
 
 const TemplateSearchBar: React.FC<TemplateSearchBarProps> = ({
@@ -25,15 +28,14 @@ const TemplateSearchBar: React.FC<TemplateSearchBarProps> = ({
   isLoading = false,
   compact = false,
   initialValue = "",
+  examples = FALLBACK_EXAMPLES,
+  examplesLoading = false,
 }) => {
   const [query, setQuery] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
   const remaining = MAX_QUERY_LENGTH - query.length;
   const isNearLimit = remaining <= 20;
   const isAtLimit = remaining <= 0;
-
-  // Fetch examples from API; falls back to FALLBACK_EXAMPLES if < 5 returned
-  const { examples, loading: examplesLoading } = useExampleQueries();
 
   useEffect(() => {
     if (!compact) {

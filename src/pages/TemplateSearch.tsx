@@ -15,6 +15,7 @@
 
 import React, { useCallback, useRef } from "react";
 import { useTemplateSearch } from "../hooks/useTemplateSearch";
+import { useExampleQueries } from "../hooks/useExampleQueries";
 
 import TemplateSearchBar  from "../components/templates/TemplateSearchBar";
 import TemplateResults    from "../components/templates/TemplateResults";
@@ -36,6 +37,11 @@ const TemplateSearch: React.FC = () => {
   const { state, search, selectTemplate, backToResults, reset } = useTemplateSearch();
   const lastQueryRef = useRef<string>("");
 
+  // Fetched once here at page level — passed as props to TemplateSearchBar.
+  // This prevents re-fetching when TemplateSearchBar mounts/unmounts between
+  // idle (hero) and non-idle (compact) states.
+  const { examples, loading: examplesLoading } = useExampleQueries();
+
   const handleSearch = useCallback(
     (query: string) => {
       lastQueryRef.current = query;
@@ -56,7 +62,6 @@ const TemplateSearch: React.FC = () => {
           <div className="max-w-4xl mx-auto px-6 py-3 flex items-center gap-6">
 
             {/* Wordmark — resets to idle */}
-            {/*
             <button
               type="button"
               onClick={reset}
@@ -74,7 +79,6 @@ const TemplateSearch: React.FC = () => {
                 Templates
               </span>
             </button>
-            */}
 
             {/* Compact search bar — disabled during template load */}
             <div className="flex-1 flex justify-center">
@@ -96,9 +100,13 @@ const TemplateSearch: React.FC = () => {
       {/* ── Main content ── */}
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
 
-        {/* IDLE */}
+        {/* IDLE — pass examples from page-level fetch; compact bar never shows examples */}
         {state.stage === "idle" && (
-          <TemplateSearchBar onSearch={handleSearch} />
+          <TemplateSearchBar
+            onSearch={handleSearch}
+            examples={examples}
+            examplesLoading={examplesLoading}
+          />
         )}
 
         {/* SEARCHING */}
